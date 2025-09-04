@@ -133,8 +133,12 @@ class SystemFileStorage(FileStorageInterface):
         if not file_path.exists():
             return APIResponse(code=404, detail="文件已过期删除")
         filename = f"{file_code.prefix}{file_code.suffix}"
-        encoded_filename = quote(filename, safe='')
+        
+        # 修改：正确处理中文文件名的编码
+        # 使用 RFC 5987 标准编码中文文件名
+        encoded_filename = quote(filename.encode('utf-8'))
         content_disposition = f"attachment; filename*=UTF-8''{encoded_filename}"
+        
         return FileResponse(
             file_path,
             media_type="application/octet-stream",
@@ -265,12 +269,15 @@ class S3FileStorage(FileStorageInterface):
             tmp.seek(0)
             content = tmp.read()
             tmp.close()
+            
+            # 修改：正确处理中文文件名
+            encoded_filename = quote(filename.encode('utf-8'))
+            content_disposition = f"attachment; filename*=UTF-8''{encoded_filename}"
+            
             return Response(
                 content,
                 media_type="application/octet-stream",
-                headers={
-                    "Content-Disposition": f'attachment; filename="{filename.encode("utf-8").decode("latin-1")}"'
-                },
+                headers={"Content-Disposition": content_disposition},
             )
         except Exception:
             raise HTTPException(status_code=503, detail="服务代理下载异常，请稍后再试")
@@ -506,12 +513,15 @@ class OneDriveFileStorage(FileStorageInterface):
             tmp.seek(0)
             content = tmp.read()
             tmp.close()
+            
+            # 修改：正确处理中文文件名
+            encoded_filename = quote(filename.encode('utf-8'))
+            content_disposition = f"attachment; filename*=UTF-8''{encoded_filename}"
+            
             return Response(
                 content,
                 media_type="application/octet-stream",
-                headers={
-                    "Content-Disposition": f'attachment; filename="{filename.encode("utf-8").decode("latin-1")}"'
-                },
+                headers={"Content-Disposition": content_disposition},
             )
         except Exception:
             raise HTTPException(status_code=503, detail="服务代理下载异常，请稍后再试")
@@ -556,8 +566,12 @@ class OpenDALFileStorage(FileStorageInterface):
         try:
             filename = file_code.prefix + file_code.suffix
             content = await self.operator.read(await file_code.get_file_path())
-            headers = {
-                "Content-Disposition": f'attachment; filename="{filename}"'}
+            
+            # 修改：正确处理中文文件名
+            encoded_filename = quote(filename.encode('utf-8'))
+            content_disposition = f"attachment; filename*=UTF-8''{encoded_filename}"
+            headers = {"Content-Disposition": content_disposition}
+            
             return Response(
                 content, headers=headers, media_type="application/octet-stream"
             )
@@ -578,12 +592,14 @@ class WebDAVFileStorage(FileStorageInterface):
             self._initialized = True
 
     def _build_url(self, path: str) -> str:
-        encoded_path = quote(str(path.replace("\\", "/").lstrip("/")).lstrip("/"))
+        # 修改：使用 UTF-8 编码处理中文路径
+        path_str = str(path.replace("\\", "/").lstrip("/")).lstrip("/")
+        encoded_path = quote(path_str, safe="/")
         return f"{self.base_url}{encoded_path}"
 
     async def _mkdir_p(self, directory_path: str):
         """递归创建目录（类似mkdir -p）"""
-        path_obj = Path(unquote(directory_path))
+        path_obj = Path(unquote(directory_path, encoding='utf-8'))
         current_path = ""
 
         async with aiohttp.ClientSession(auth=self.auth) as session:
@@ -703,14 +719,17 @@ class WebDAVFileStorage(FileStorageInterface):
                         )
                     # 读取内容到内存
                     content = await resp.read()
+                    
+                    # 修改：正确处理中文文件名
+                    encoded_filename = quote(filename.encode('utf-8'))
+                    content_disposition = f"attachment; filename*=UTF-8''{encoded_filename}"
+                    
                     return Response(
                         content=content,
                         media_type=resp.headers.get(
                             "Content-Type", "application/octet-stream"
                         ),
-                        headers={
-                            "Content-Disposition": f'attachment; filename="{filename.encode("utf-8").decode()}"'
-                        },
+                        headers={"Content-Disposition": content_disposition},
                     )
         except aiohttp.ClientError as e:
             raise HTTPException(
